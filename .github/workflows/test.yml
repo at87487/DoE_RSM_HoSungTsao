@@ -8,7 +8,6 @@ jobs:
   test-and-deploy:
     runs-on: ubuntu-latest
     steps:
-    # 升級到最新版套件（不會再有 Node.js 20 廢棄警告）
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
@@ -19,19 +18,17 @@ jobs:
       with:
         python-version: '3.10'
 
-    # 檢查網頁核心檔案 index.html 是否存在
-    - name: Verify Web Entry Point
+    - name: Verify App Entry Point
       run: |
-        if [ -f "index.html" ]; then
-          echo "✅ index.html 存在，準備部署至 Hugging Face Space！"
+        if [ -f "app.py" ]; then
+          echo "✅ app.py 存在，準備部署至 Hugging Face Space！"
         else
-          echo "❌ 找不到 index.html！請確認檔案命名為小寫 index.html"
+          echo "❌ 找不到 app.py！"
           exit 1
         fi
 
-    # 自動同步推送至 Hugging Face Spaces
     - name: Push to Hugging Face
       env:
         HF_TOKEN: ${{ secrets.HF_TOKEN }}
       run: |
-        git push --force https://jacob:$HF_TOKEN@huggingface.co/spaces/AndyHSTsao/DoE_HoSungTsao main:main
+        git push --force https://user:$HF_TOKEN@huggingface.co/spaces/AndyHSTsao/DoE_HoSungTsao main:main
