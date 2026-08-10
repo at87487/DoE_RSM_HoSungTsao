@@ -1,0 +1,42 @@
+---
+title: Adaptive RSM Tool
+emoji: 🌋
+colorFrom: blue
+colorTo: indigo
+sdk: static
+pinned: false
+---
+
+<script type="module">
+import { launchGradioFromCode } from "https://cdn.jsdelivr.net/npm/@gradio/lite@5/dist/index.js";
+
+const code = `
+# ==========================================
+# 1. 聲明內建下載套件（Gradio-Lite 專用）
+# ==========================================
+import micropip
+await micropip.install(['matplotlib', 'pandas', 'numpy', 'scikit-learn', 'scipy'])
+
+import gradio as gr
+import matplotlib.pyplot as plt
+import pandas as pd
+import numpy as np
+import math
+import itertools
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.linear_model import LinearRegression
+from scipy.optimize import minimize
+
+# ... 這裡貼上我們之前寫的 parse_inputs, generate_adaptive_rsm_matrix, analyze_adaptive_rsm 完整邏輯 ...
+
+# ==========================================
+# Gradio 介面佈局（注意：最後一行改成 demo.launch() 即可，拿掉 share=True）
+# ==========================================
+with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue")) as demo:
+    # ... 你的介面排版 ...
+
+demo.launch()
+`;
+
+launchGradioFromCode({ code });
+</script>
