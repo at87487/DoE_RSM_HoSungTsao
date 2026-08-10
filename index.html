@@ -1,22 +1,20 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-TW">
 <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>自適應 RSM 預測優化系統</title>
-    <!-- 引入 Gradio-Lite 網頁解析引擎 -->
-    <script type="module" src="https://cdn.jsdelivr.net/npm/@gradio/lite@5/dist/index.js"></script>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@gradio/lite@5/dist/lite.css" />
+    <!-- 引入 Gradio-Lite CDN 腳本與樣式檔案 -->
+    <script type="module" src="https://cdn.jsdelivr.net/npm/@gradio/lite/dist/lite.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@gradio/lite/dist/lite.css" />
 </head>
-<body>
+<body style="margin: 0; padding: 20px; background-color: #f8fafc;">
 
     <gradio-lite>
 import micropip
 
-async def init_packages():
-    await micropip.install(['matplotlib', 'pandas', 'numpy', 'scikit-learn', 'scipy'])
-
-import asyncio
-asyncio.ensure_future(init_packages())
+# 先讓網頁徹底安裝好所有依賴套件
+await micropip.install(['matplotlib', 'pandas', 'numpy', 'scikit-learn', 'scipy'])
 
 import gradio as gr
 import matplotlib.pyplot as plt
@@ -63,7 +61,6 @@ def generate_adaptive_rsm_matrix(factors_input, responses_input):
     if k == 2:
         design_type = "3² 全因子九宮格設計 (3² Full Factorial)"
         bbd_coded = list(itertools.product([-1, 0, 1], repeat=2))
-    
     elif k == 3:
         design_type = "Box-Behnken 減量設計 (BBD)"
         bbd_coded = [
@@ -72,7 +69,6 @@ def generate_adaptive_rsm_matrix(factors_input, responses_input):
             [0, -1, -1], [0, 1, -1], [0, -1, 1], [0, 1, 1],
             [0, 0, 0]
         ]
-        
     elif k == 4:
         design_type = "Box-Behnken 減量設計 (BBD)"
         bbd_coded = []
@@ -104,7 +100,6 @@ def generate_adaptive_rsm_matrix(factors_input, responses_input):
 
     df = pd.DataFrame(runs)
     df.insert(0, "實驗編號", [f"RSM-EXP-{i+1:02d}" for i in range(len(df))])
-    
     status = f"✅ 矩陣生成成功！\n採用架構: {design_type}\n變量數: {k} | 結果指標數: {len(responses)} | 總實驗組數: 【{len(df)} 組】"
     return df, status
 
@@ -120,7 +115,6 @@ def analyze_adaptive_rsm(df, factors_input, responses_input):
         if col != "實驗編號": df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
         
     X = df[var_names].values
-    
     poly = PolynomialFeatures(degree=2, include_bias=True)
     X_poly = poly.fit_transform(X)
     
@@ -181,7 +175,6 @@ def analyze_adaptive_rsm(df, factors_input, responses_input):
 
     for r_idx, r_name in enumerate(response_targets.keys()):
         ax = fig.add_subplot(1, len(response_targets), r_idx + 1, projection='3d')
-        
         grid_points = []
         for x1, x2 in zip(np.ravel(X1_mesh), np.ravel(X2_mesh)):
             pt = [x1, x2]
@@ -243,5 +236,6 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue"), title="自適應 RSM �
 
 demo.launch()
     </gradio-lite>
+
 </body>
 </html>
