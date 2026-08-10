@@ -35,4 +35,4 @@ jobs:
         # 這裡的網址請替換成你在第二步複製的 Hugging Face Space HTTPS 網址（除去 https:// 之後的部分）
         # 範例格式：git push https://你的HF帳號:$HF_TOKEN@huggingface.co/spaces/你的HF帳號/你的Space專案名 main
         # ⚠️ 請把下方這一行的「你的HF帳號/你的Space專案名」改成你的真實 Space 路徑：
-        git push --force https://jacob:$HF_TOKEN@huggingface.co/spaces/YOUR_HF_USERNAME/YOUR_SPACE_NAME main:main
+        git push --force https://jacob:$HF_TOKEN@huggingface.co/spaces/AndyHSTsao/DoE_HoSungTsao main:main
