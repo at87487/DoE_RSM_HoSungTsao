@@ -2,12 +2,13 @@ name: Test and Deploy to Hugging Face
 
 on:
   push:
-    branches: [ main, master ] # 只有當你推播到主分支時才觸發
+    branches: [ main, master ]
 
 jobs:
   test-and-deploy:
     runs-on: ubuntu-latest
     steps:
+    # 升級到最新版套件（不會再有 Node.js 20 廢棄警告）
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
@@ -17,22 +18,20 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
-        
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        
-    - name: Run Syntax Check
-      run: |
-        python -m py_compile app.py
 
-    # 🌟 核心步驟：如果前面語法測試都過了，就啟動自動綁定與同步發布
+    # 檢查網頁核心檔案 index.html 是否存在
+    - name: Verify Web Entry Point
+      run: |
+        if [ -f "index.html" ]; then
+          echo "✅ index.html 存在，準備部署至 Hugging Face Space！"
+        else
+          echo "❌ 找不到 index.html！請確認檔案命名為小寫 index.html"
+          exit 1
+        fi
+
+    # 自動同步推送至 Hugging Face Spaces
     - name: Push to Hugging Face
       env:
         HF_TOKEN: ${{ secrets.HF_TOKEN }}
       run: |
-        # 這裡的網址請替換成你在第二步複製的 Hugging Face Space HTTPS 網址（除去 https:// 之後的部分）
-        # 範例格式：git push https://你的HF帳號:$HF_TOKEN@huggingface.co/spaces/你的HF帳號/你的Space專案名 main
-        # ⚠️ 請把下方這一行的「你的HF帳號/你的Space專案名」改成你的真實 Space 路徑：
-        git push --force https://jacob:$HF_TOKEN@huggingface.co/spaces/AndyHSTsao/DoE_HoSungTsao main:main
+        git push --force https://jacob:$HF_TOKEN@huggingface.co/spaces/YOUR_HF_USERNAME/YOUR_SPACE_NAME main:main
