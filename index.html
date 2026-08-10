@@ -4,15 +4,13 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>自適應 RSM 預測優化系統</title>
-    <script type="module" src="https://cdn.jsdelivr.net/npm/@gradio/lite/dist/lite.js"></script>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@gradio/lite/dist/lite.css" />
+    <!-- ⚠️ 指定固定至相容性最高的 Gradio 4.x 版本 -->
+    <script type="module" src="https://cdn.jsdelivr.net/npm/@gradio/lite@4.44.0/dist/lite.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@gradio/lite@4.44.0/dist/lite.css" />
 </head>
 <body style="margin: 0; padding: 20px; background-color: #f8fafc;">
 
     <gradio-lite>
-import os
-os.environ["GRADIO_ANALYTICS_ENABLED"] = "False"
-
 import micropip
 await micropip.install(['matplotlib', 'pandas', 'numpy', 'scikit-learn', 'scipy'])
 
