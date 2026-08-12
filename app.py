@@ -1,20 +1,36 @@
-import gradio as gr
-import matplotlib.pyplot as plt
-import pandas as pd
-import numpy as np
-import math
+import os
+import sys
+import urllib.request
 import itertools
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import gradio as gr
+from matplotlib.font_manager import FontProperties
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.linear_model import LinearRegression
 from scipy.optimize import minimize
 
-# ==================== 🛠️ 解決 Matplotlib 中文亂碼設定 ====================
-import platform
-# 針對 Linux (Codespaces) 優先設定支援中文的字型
-plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial Unicode MS', 'Microsoft JhengHei', 'SimHei', 'sans-serif']
-plt.rcParams['axes.unicode_minus'] = False  # 修正負號 '-' 顯示為方塊的問題
-# =========================================================================
+# =====================================================================
+# 🛠️ 全局字型防爆機制
+# =====================================================================
+FONT_PATH = "msjh.ttf"
+if not os.path.exists(FONT_PATH):
+    try:
+        url = "https://github.com/DescentOfG/Fonts/raw/master/Microsoft-JhengHei.ttf"
+        urllib.request.urlretrieve(url, FONT_PATH)
+    except Exception:
+        try:
+            url = "https://github.com/adobe-fonts/source-han-sans/raw/release/Variable/TTF/SourceHanSansTC-VF.ttf"
+            urllib.request.urlretrieve(url, FONT_PATH)
+        except Exception:
+            pass
 
+GLOBAL_MY_FONT = FontProperties(fname=FONT_PATH) if os.path.exists(FONT_PATH) else None
+
+# ==========================================
+# 核心邏輯 1：動態解析輸入
+# ==========================================
 def parse_inputs(factors_text, responses_text):
     factors = {}
     for item in factors_text.split(";"):
@@ -36,6 +52,26 @@ def parse_inputs(factors_text, responses_text):
             except: pass
     return factors, responses
 
+# ==========================================
+# 核心邏輯 2：實驗矩陣生成與動態更新下拉選單
+# ==========================================
+def generate_matrix_and_update_dropdowns(factors_input, responses_input):
+    # 呼叫原本的矩陣生成邏輯
+    df, status = generate_adaptive_rsm_matrix(factors_input, responses_input)
+    
+    if df.empty:
+        return df, status, gr.update(choices=[]), gr.update(choices=[])
+    
+    # 解析出因子的名稱，用來更新前台 UI 的下拉選單
+    factors, _ = parse_inputs(factors_input, responses_input)
+    var_names = list(factors.keys())
+    
+    # 預設 X 軸選第一個，Y 軸選第二個（若有）
+    default_x = var_names[0]
+    default_y = var_names[1] if len(var_names) > 1 else var_names[0]
+    
+    return df, status, gr.update(choices=var_names, value=default_x), gr.update(choices=var_names, value=default_y)
+
 def generate_adaptive_rsm_matrix(factors_input, responses_input):
     factors, responses = parse_inputs(factors_input, responses_input)
     var_names = list(factors.keys())
@@ -48,7 +84,7 @@ def generate_adaptive_rsm_matrix(factors_input, responses_input):
 
     design_type = ""
     if k == 2:
-        design_type = "3² 全因子九宮格設計 (3² Full Factorial)"
+        design_type = "3² 全因子九宮格設計"
         bbd_coded = list(itertools.product([-1, 0, 1], repeat=2))
     elif k == 3:
         design_type = "Box-Behnken 減量設計 (BBD)"
@@ -70,7 +106,7 @@ def generate_adaptive_rsm_matrix(factors_input, responses_input):
                         bbd_coded.append(row)
         bbd_coded.append([0] * k)
     else:
-        return pd.DataFrame(), "❌ 目前系統自適應範圍為 2 ~ 4 個變量，暫不支援更多變量。"
+        return pd.DataFrame(), "❌ 目前系統自適應範圍為 2 ~ 4 個變量。"
 
     runs = []
     for row in bbd_coded:
@@ -84,7 +120,7 @@ def generate_adaptive_rsm_matrix(factors_input, responses_input):
             row_data[name] = real_val
             
         for r_name in responses.keys():
-            row_data[r_name] = 0.0
+            row_data[r_name] = 0.0  
         runs.append(row_data)
 
     df = pd.DataFrame(runs)
@@ -92,100 +128,107 @@ def generate_adaptive_rsm_matrix(factors_input, responses_input):
     status = f"✅ 矩陣生成成功！\n採用架構: {design_type}\n變量數: {k} | 結果指標數: {len(responses)} | 總實驗組數: 【{len(df)} 組】"
     return df, status
 
-def analyze_adaptive_rsm(df, factors_input, responses_input):
-    if df is None or df.empty:
-        return "⚠️ 請先生成矩陣並填入數據！", None
-        
-    factors, responses = parse_inputs(factors_input, responses_input)
+# =====================================================================
+# 核心邏輯 3：整合分析、優化搜尋與 3D 繪圖（支援自訂 X, Y 軸向）
+# =====================================================================
+def analyze_adaptive_rsm(df, factors_input, responses_input, x_axis_var, y_axis_var):
+    factors, response_targets = parse_inputs(factors_input, responses_input)
     var_names = list(factors.keys())
-    response_targets = responses
     
-    for col in df.columns:
-        if col != "實驗編號": df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
-        
-    X = df[var_names].values
-    poly = PolynomialFeatures(degree=2, include_bias=True)
+    if df is None or df.empty or len(df) < 5:
+        return "❌ 錯誤：請先生成矩陣並確實回填有效數據再進行分析！", None
+
+    # 驗證選定的軸向是否存在
+    if not x_axis_var or not y_axis_var or x_axis_var not in var_names or y_axis_var not in var_names:
+        x_axis_var = var_names[0]
+        y_axis_var = var_names[1] if len(var_names) > 1 else var_names[0]
+
+    # 1. 訓練多目標二次曲面模型
+    X = df[var_names]
+    poly = PolynomialFeatures(degree=2, include_bias=False)
     X_poly = poly.fit_transform(X)
     
     models = {}
-    report = "### 📈 響應曲面法 (RSM) 統計擬合與預測報告\n---\n"
-    
     for r_name in response_targets.keys():
-        y = df[r_name].values
+        if r_name not in df.columns:
+            return f"❌ 錯誤：數據表中找不到結果指標 [{r_name}] 的欄位！", None
         model = LinearRegression()
-        model.fit(X_poly, y)
+        model.fit(X_poly, df[r_name])
         models[r_name] = model
-        r2_score = model.score(X_poly, y)
-        report += f"🔹 **【{r_name}】二次迴歸曲面擬合度 ($R^2$):** `{r2_score:.4f}`\n"
-    report += "\n"
 
-    def objective_func(x_cont):
-        x_poly_cont = poly.transform([x_cont])
-        total_penalty = 0
-        for r_name, target in response_targets.items():
-            pred_y = models[r_name].predict(x_poly_cont)[0]
-            std_dev = df[r_name].std() if df[r_name].std() != 0 else 1.0
-            
-            if "深度" in r_name or "效率" in r_name:
-                penalty_each = np.where(pred_y >= target, 0, ((pred_y - target) / std_dev) ** 2)
-            elif "粗糙度" in r_name or "HAZ" in r_name or "損傷" in r_name:
-                penalty_each = np.where(pred_y <= target, 0, ((pred_y - target) / std_dev) ** 2)
-            else:
-                penalty_each = ((pred_y - target) / std_dev) ** 2
-                
-            total_penalty += float(penalty_each)
-        return math.sqrt(total_penalty)
+    # 2. 連續空間尋優
+    def objective_function(x):
+        score = 0.0
+        x_reshaped = np.array([x])
+        x_poly_feat = poly.transform(x_reshaped)
+        for r_name, target_val in response_targets.items():
+            pred_val = models[r_name].predict(x_poly_feat)[0]
+            score += (pred_val - target_val) ** 2
+        return score
 
     bounds = [(factors[name][0], factors[name][2]) for name in var_names]
     initial_guess = [factors[name][1] for name in var_names]
-
-    res = minimize(objective_func, initial_guess, bounds=bounds, method='L-BFGS-B')
+    res = minimize(objective_function, initial_guess, method='L-BFGS-B', bounds=bounds)
     opt_x = res.x
 
-    report += "---\n### 🏆 RSM 最佳連續參數預測配方\n"
-    report += "透過曲面梯度搜尋，預測出打破離散限制的最優連續微調參數：\n\n"
-    report += "**💡 推薦機台最佳微調參數：**\n"
+    # 3. 建立報告
+    report = "### 🏆 多目標響應曲面優化結果報告\n\n"
+    report += "#### 🌟 最佳連續機台參數推薦配方：\n"
     for idx, name in enumerate(var_names):
-        report += f"  - **{name}** : `{opt_x[idx]:.2f}` *(範圍: {factors[name][0]} ~ {factors[name][2]})*\n"
-
-    report += "\n**🎯 RSM 方程式預估加工結果：**\n"
-    opt_x_poly = poly.transform([opt_x])
-    for r_name, target in response_targets.items():
-        pred_val = models[r_name].predict(opt_x_poly)[0]
-        report += f"  - **{r_name}** 預估值: **{pred_val:.2f}** (設定目標: {target})\n"
-
-    fig = plt.figure(figsize=(6 * len(response_targets), 5))
-    v1_name = var_names[0]
-    v2_name = var_names[1] if len(var_names) > 1 else var_names[0]
+        report += f"*   **{name}**： `{opt_x[idx]:.3f}`\n"
     
-    x1_line = np.linspace(factors[v1_name][0], factors[v1_name][2], 30)
-    x2_line = np.linspace(factors[v2_name][0], factors[v2_name][2], 30)
+    report += "\n#### 🔮 預期達成之製程指標值：\n"
+    opt_poly_feat = poly.transform(np.array([opt_x]))
+    for r_name, target_val in response_targets.items():
+        pred_val = models[r_name].predict(opt_poly_feat)[0]
+        report += f"*   **{r_name}** ➔ 預測值: `{pred_val:.3f}` (設定目標: `{target_val}`)\n"
+
+    # 4. 開始繪製 3D 響應曲面圖（依據 UI 選定的因子當 X, Y 軸）
+    fig = plt.figure(figsize=(5 * len(response_targets), 4.5))
+    
+    x1_line = np.linspace(factors[x_axis_var][0], factors[x_axis_var][2], 30)
+    x2_line = np.linspace(factors[y_axis_var][0], factors[y_axis_var][2], 30)
     X1_mesh, X2_mesh = np.meshgrid(x1_line, x2_line)
 
     for r_idx, r_name in enumerate(response_targets.keys()):
         ax = fig.add_subplot(1, len(response_targets), r_idx + 1, projection='3d')
+        
+        # 建立高維預測網格
         grid_points = []
         for x1, x2 in zip(np.ravel(X1_mesh), np.ravel(X2_mesh)):
-            pt = [x1, x2]
-            for idx in range(2, len(var_names)):
-                pt.append(opt_x[idx])
+            # 建立一個與變量等長的基礎點，預設全部填最佳解
+            pt = list(opt_x)
+            # 將使用者選定的變量動態替換為網格線資料
+            pt[var_names.index(x_axis_var)] = x1
+            pt[var_names.index(y_axis_var)] = x2
             grid_points.append(pt)
             
         Z_pred = models[r_name].predict(poly.transform(grid_points))
         Z_mesh = Z_pred.reshape(X1_mesh.shape)
 
         surf = ax.plot_surface(X1_mesh, X2_mesh, Z_mesh, cmap='viridis', alpha=0.8, edgecolor='none')
-        ax.scatter(df[v1_name], df[v2_name], df[r_name], color='red', s=45, label='Measured')
+        ax.scatter(df[x_axis_var], df[y_axis_var], df[r_name], color='red', s=35, label='Measured')
         
-        ax.set_title(f"RSM Surface: {r_name}", fontweight='bold')
-        ax.set_xlabel(v1_name)
-        ax.set_ylabel(v2_name)
-        ax.set_zlabel(r_name)
-        fig.colorbar(surf, ax=ax, shrink=0.5, aspect=5)
+        # 套用防爆中文字型
+        if GLOBAL_MY_FONT:
+            ax.set_title(f"RSM 曲面: {r_name}", fontweight='bold', fontproperties=GLOBAL_MY_FONT, fontsize=12)
+            ax.set_xlabel(x_axis_var, fontproperties=GLOBAL_MY_FONT, fontsize=10)
+            ax.set_ylabel(y_axis_var, fontproperties=GLOBAL_MY_FONT, fontsize=10)
+            ax.set_zlabel(r_name, fontproperties=GLOBAL_MY_FONT, fontsize=10)
+        else:
+            ax.set_title(f"RSM Surface: {r_name}", fontweight='bold')
+            ax.set_xlabel(x_axis_var)
+            ax.set_ylabel(y_axis_var)
+            ax.set_zlabel(r_name)
+            
+        fig.colorbar(surf, ax=ax, shrink=0.5, aspect=8)
 
     plt.tight_layout()
     return report, fig
 
+# ==========================================
+# Gradio 介面佈局
+# ==========================================
 with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue"), title="自適應 RSM 預測優化系統") as demo:
     gr.Markdown("# 🌋 萬能自適應響應曲面法 (RSM) 優化系統")
     gr.Markdown("自動依變量數切換架構：輸入 **2 個變量**自動生成 **9 組九宮格**；輸入 **3~4 個變量**自動生成 **BBD 減量矩陣**。")
@@ -193,14 +236,14 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue"), title="自適應 RSM �
     with gr.Row():
         with gr.Column():
             factors_input = gr.Textbox(
-                value="加工次數: 4, 12 ; 雷射功率(%): 60, 100", 
-                label="🛠️ 控制因子與範圍",
+                value="加工次數: 4, 12 ; 雷射功率(%): 60, 100 ; 第二外框距離: 0, 14 ; 第二外框次數: 0, 8", 
+                label="🛠️ 控制因子與範圍 (參數名稱: 最小值, 最大值 ; 隔開)",
                 lines=3
             )
         with gr.Column():
             responses_input = gr.Textbox(
-                value="Taper_Angle(°): 0.0 ; 加工深度(µm): 150.0",
-                label="🎯 結果指標與優化目標",
+                value="Taper_Angle(°): 0.0 ; 加工深度(µm): 150.0 ; 凹陷: 2.0",
+                label="🎯 結果指標與優化目標 (指標名稱: 目標值 ; 隔開)",
                 lines=3
             )
             
@@ -209,8 +252,15 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue"), title="自適應 RSM �
         txt_status = gr.Textbox(label="系統配對狀態", interactive=False)
         
     with gr.Row():
-        dt_table = gr.Dataframe(interactive=True, label="數據回填表")
+        dt_table = gr.Dataframe(interactive=True, label="數據回填表 (請手動修改結果指標欄位為你的實驗量測值)")
         
+    # ─── 💡 新增：允許使用者自由切換 3D 圖底座軸向的互動區塊 ───
+    with gr.Row():
+        gr.Markdown("### 🔍 3D 響應曲面圖觀測軸向微調 (可隨時切換)")
+    with gr.Row():
+        drop_x = gr.Dropdown(choices=[], label="選擇圖表 X 軸參數", interactive=True)
+        drop_y = gr.Dropdown(choices=[], label="選擇圖表 Y 軸參數", interactive=True)
+
     with gr.Row():
         btn_analyze = gr.Button("📈 啟動二次曲面擬合與連續空間最佳化", variant="secondary")
         
@@ -220,8 +270,19 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue"), title="自適應 RSM �
         with gr.Column(scale=1):
             plot_output = gr.Plot(label="3D 響應曲面圖")
 
-    btn_gen.click(generate_adaptive_rsm_matrix, [factors_input, responses_input], [dt_table, txt_status])
-    btn_analyze.click(analyze_adaptive_rsm, [dt_table, factors_input, responses_input], [md_report, plot_output])
+    # 點擊生成矩陣時，除了更新表格，也會動態把因子的清單塞進下拉選單中
+    btn_gen.click(
+        generate_matrix_and_update_dropdowns, 
+        [factors_input, responses_input], 
+        [dt_table, txt_status, drop_x, drop_y]
+    )
+    
+    # 點擊分析時，連同下拉選單選定的變數名稱一起丟進繪圖引擎
+    btn_analyze.click(
+        analyze_adaptive_rsm, 
+        [dt_table, factors_input, responses_input, drop_x, drop_y], 
+        [md_report, plot_output]
+    )
 
 if __name__ == "__main__":
-    demo.launch()
+    demo.launch(share=True, debug=True)
