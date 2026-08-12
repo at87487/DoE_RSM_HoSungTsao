@@ -8,6 +8,13 @@ from sklearn.preprocessing import PolynomialFeatures
 from sklearn.linear_model import LinearRegression
 from scipy.optimize import minimize
 
+# ==================== 🛠️ 解決 Matplotlib 中文亂碼設定 ====================
+import platform
+# 針對 Linux (Codespaces) 優先設定支援中文的字型
+plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial Unicode MS', 'Microsoft JhengHei', 'SimHei', 'sans-serif']
+plt.rcParams['axes.unicode_minus'] = False  # 修正負號 '-' 顯示為方塊的問題
+# =========================================================================
+
 def parse_inputs(factors_text, responses_text):
     factors = {}
     for item in factors_text.split(";"):
